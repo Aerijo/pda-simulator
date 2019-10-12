@@ -1,0 +1,24 @@
+{
+  "name": "pda-solver",
+  "version": "0.0.0",
+  "description": "Solves push-down automata",
+  "main": "./dist/main.js",
+  "dependencies": {
+    "typescript": "^3.6.4"
+  },
+  "devDependencies": {
+    "@types/node": "^12.7.12"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "exec": "npm run build && echo 'running apx...' && node .",
+    "prepublishOnly": "npm run lint && npm shrinkwrap && rm -rf ./dist && tsc --declarationMap false --inlineSourceMap false --inlineSources false",
+    "lint": "prettier --check --ignore-path .gitignore **/*",
+    "fix-lint": "prettier --check --write --ignore-path .gitignore **/*",
+    "postversion": "git push --follow-tags",
+    "test": "jest"
+  },
+  "author": "Benjamin Gray",
+  "license": "GPLv3"
+}
