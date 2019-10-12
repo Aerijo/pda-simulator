@@ -3,8 +3,17 @@
   <head>
     <meta charset="utf-8">
     <title>PDA Simulator</title>
+    <!-- <script src="../webout/bundle.js" charset="utf-8"></script> -->
   </head>
   <body>
-    Foo
+    <h1>PDA Simulator</h1>
+    <h2>PDA transition tables</h2>
+    <textarea id="pda_tables" rows="20" cols="150"></textarea>
+    <button type="button" id="process_pda" onclick="processInput()">COMPUTE</button>
+
+    <h2>Accepted words:</h2>
+    <ul class="result" id="accepted_output">
+    </ul>
   </body>
+  <script src="../dist/main.js" charset="utf-8"></script>
 </html>

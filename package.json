@@ -3,11 +3,13 @@
   "version": "0.0.0",
   "description": "Solves push-down automata",
   "main": "./dist/main.js",
-  "dependencies": {
-    "typescript": "^3.6.4"
-  },
+  "dependencies": {},
   "devDependencies": {
-    "@types/node": "^12.7.12"
+    "@types/node": "^12.7.12",
+    "ts-loader": "^6.2.0",
+    "typescript": "^3.6.4",
+    "webpack": "^4.41.1",
+    "webpack-cli": "^3.3.9"
   },
   "scripts": {
     "build": "tsc",

@@ -8,7 +8,6 @@
     "inlineSources": false,
     "listFiles": false,
     "module": "CommonJS",
-    "moduleResolution": "Node",
     "newLine": "lf",
     "outDir": "dist",
     "pretty": true,
