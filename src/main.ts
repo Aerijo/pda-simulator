@@ -146,25 +146,43 @@ class Pda {
       const char = input[i];
       const remaining = input.slice(i);
       this.doStepEpsilonTransitions(remaining);
-      if (this.stack.length === 0) { return false; }
+      if (this.stack.length === 0) {
+        this.appendState(remaining, "reject");
+        return false;
+      }
 
       const table = this.transitions.get(this.state)!;
       const stackVal = this.stack.pop()!;
       if (!this.applyStep(table.getInputNext(char, stackVal))) {
+        this.appendState(remaining, "reject");
         return false;
       }
       this.appendState(remaining.slice(1), `->${char}`);
     }
 
     this.doStepEpsilonTransitions("");
-    return this.isInFinalState();
+
+    this.appendState("", this.isInFinalState() ? "accept" : "reject");
   }
 
   appendState(remainingInput: string, kind: string) {
-    const value = `${this.state}, [${remainingInput.split("")}], [${[...this.stack].reverse()}] (${kind})`;
-    const node = document.createElement("li");
-    node.appendChild(document.createTextNode(value));
-    document.getElementById("accepted_output")!.appendChild(node);
+    // const value = `${this.state}, [${remainingInput.split("")}], [${[...this.stack]}] (${kind})`;
+
+    const state = document.createElement("td");
+    state.textContent = this.state;
+    const input = document.createElement("td");
+    input.textContent = remainingInput;
+    const stack = document.createElement("td");
+    stack.textContent = `[${this.stack}]`;
+    const post = document.createElement("td");
+    post.textContent = `(${kind})`;
+
+    const node = document.createElement("tr");
+    node.appendChild(state);
+    node.appendChild(input);
+    node.appendChild(stack);
+    node.appendChild(post);
+    document.getElementById("pda_state")!.appendChild(node);
   }
 
   isInFinalState() {
@@ -454,7 +472,16 @@ async function fuzzTest(pda: Pda, wordLength: number) {
 
 
 function testInput() {
-  document.getElementById("accepted_output")!.innerHTML = "";
+  const output = document.getElementById("accepted_output")!;
+  output.innerHTML = "";
+
+  const table = document.createElement("table");
+  table.setAttribute("id", "pda_state");
+
+  table.innerHTML = "<tr><td>State</td><td>Remaining</td><td>Stack</td><td>Kind</td></tr>";
+
+  output.appendChild(table);
+
   const pda = buildPda();
   if (!pda) { return; }
   const input = (document.getElementById("pda_input")! as HTMLInputElement).value;
