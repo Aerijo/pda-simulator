@@ -1,211 +1,396 @@
-interface Transition<S, A, T> {
-  readonly state: S;
-  readonly input: A | undefined;
-  readonly stack: T;
-  readonly next: {
-    state: S,
-    stack: T[],
-  }
+const EPSILON = "&epsilon;";
+
+interface Transition {
+  readonly state: string;
+  readonly input: string;
+  readonly stack: string;
+  readonly next: Step;
 }
 
-interface Step<S, T> {
-  consume: boolean,
-  state: S,
-  stack: T[],
+interface Step {
+  state: string,
+  stack: string[],
 }
 
-class TransitionTable<S, A, T> {
-  next: Map<T, Map<A, Step<S, T>> | Step<S, T>>;
+interface TTableProto {
+  state: string,
+  final: boolean,
+  contents: string[][]
+}
 
-  constructor(transitions: Transition<S, A, T>[]) {
-    const fullTransitions = new Map<T, Map<A, Step<S, T>>>();
-    const epsilonTransitions = new Map<T, Step<S, T>>();
+class TransitionTable {
+  epsilonTransitions: Map<string, Step>;
+  fullTransitions: Map<string, Map<string, Step>>;
+
+  constructor(transitions: Transition[]) {
+    this.epsilonTransitions = new Map<string, Step>();
+    this.fullTransitions = new Map<string, Map<string, Step>>();
 
     for (const t of transitions) {
-      if (t.input === undefined) {
-        epsilonTransitions.set(t.stack, {consume: false, ...t.next});
+      if (t.input === "ε") {
+        this.epsilonTransitions.set(t.stack, t.next);
       } else {
-        if (fullTransitions.get(t.stack) === undefined) {
-          fullTransitions.set(t.stack, new Map());
+        if (!this.fullTransitions.has(t.stack)) {
+          this.fullTransitions.set(t.stack, new Map());
         }
-        fullTransitions.get(t.stack)!.set(t.input, {consume: true, ...t.next});
+        const inputMap = this.fullTransitions.get(t.stack)!;
+        inputMap.set(t.input, t.next);
       }
     }
 
-    this.next = fullTransitions;
-
-    for (const [stack, next] of epsilonTransitions) {
-      if (this.next.get(stack) !== undefined) {
+    for (const [key,] of this.epsilonTransitions) {
+      if (this.fullTransitions.has(key)) {
         throw new Error("Non-deterministic");
       }
-      this.next.set(stack, next);
     }
   }
 
-  getNext(input: A | undefined, stack: T): Step<S, T> | undefined {
-    const inputDiscrim = this.next.get(stack);
-    if (inputDiscrim instanceof Map) {
-      return input !== undefined ? inputDiscrim.get(input) : undefined;
-    } else {
-      return inputDiscrim;
-    }
+  getEpsilonNext(stack: string): Step | undefined {
+    return this.epsilonTransitions.get(stack);
+  }
+
+  getInputNext(input: string, stack: string): Step | undefined {
+    const inputMap = this.fullTransitions.get(stack);
+    return inputMap ? inputMap.get(input) : undefined;
   }
 }
 
-class PDA<S, A, T> {
-  state: S;
-  finalStates: Set<S>;
-  transitions: Map<S, TransitionTable<S, A, T>>;
-  stack: T[];
+class Pda {
+  readonly alphabet: Set<string>;
+  readonly states: Set<string>;
+  readonly finalStates: Set<string>;
+  readonly initialState: string;
+  readonly initialStack: string[]
+  readonly transitions: Map<string, TransitionTable>;
 
-  constructor(initialState: S, finalStates: Set<S>, transitions: Set<Transition<S, A, T>>, initialStack: T) {
-    this.state = initialState;
+  state: string;
+  stack: string[];
+
+  constructor(alphabet: Set<string>, states: Set<string>, initialState: string, finalStates: Set<string>, transitions: Map<string, TransitionTable>, initialStack: string[]) {
+    this.alphabet = alphabet;
+    this.states = states;
     this.finalStates = finalStates;
-    this.transitions = new Map();
-    this.stack = [initialStack];
+    this.initialState = initialState;
+    this.initialStack = initialStack;
+    this.transitions = transitions;
 
-    const states = new Set<S>([initialState, ...finalStates]);
-    for (const t of transitions) {
-      states.add(t.state);
-      states.add(t.next.state);
-    }
-
-    const sorter = new Map<S, Transition<S, A, T>[]>();
-    for (const state of states) {
-      sorter.set(state, []);
-    }
-
-    for (const t of transitions) {
-      sorter.get(t.state)!.push(t);
-    }
-
-    for (const [s, ts] of sorter) {
-      this.transitions.set(s, new TransitionTable<S, A, T>(ts));
-    }
+    this.state = this.initialState;
+    this.stack = [...this.initialStack];
   }
 
-  accepts(input: A[]): boolean {
-    const plugged = [...input, undefined];
-    for (let i = 0; i < plugged.length; i++) {
-      const a = plugged[i];
-      while (true) {
-        if (this.stack.length === 0) {
-          return false;
-        }
-
-        const t = this.stack.pop()!;
-        const table = this.transitions.get(this.state)!;
-
-        const next = table.getNext(a, t);
-        if (next === undefined) {
-          return a === undefined && this.finalStates.has(this.state);
-        }
-        this.state = next.state;
-        this.stack.push(...next.stack);
-        if (next.consume) {
-          break;
-        }
-
-        if (a === undefined) {
-          return this.finalStates.has(this.state);
-        }
-      }
+  applyStep(step: Step | undefined): boolean {
+    if (step === undefined) {
+      return false;
     }
-    return false;
-  }
-
-  reset(state: S, stack: T[]) {
+    const {state, stack} = step;
     this.state = state;
-    this.stack = stack;
+    this.stack.push(...stack);
+    return true;
   }
 
-  getAlphabet(): A[] {
-    const alphabet = new Set<A>();
-    for (const [,table] of this.transitions) {
-      for (const [,letterMap] of table.next) {
-        if (letterMap instanceof Map) {
-          for (const [letter,] of letterMap) {
-            alphabet.add(letter);
-          }
-        }
+  doEpsilonTransitions() {
+    while (this.stack.length > 0) {
+      const table = this.transitions.get(this.state)!;
+      const stackVal = this.stack.pop()!;
+      if (!this.applyStep(table.getEpsilonNext(stackVal))) {
+        this.stack.push(stackVal);
+        return;
+      }
+    }
+  }
+
+  doStepEpsilonTransitions(remaining: string) {
+    while (this.stack.length > 0) {
+      const table = this.transitions.get(this.state)!;
+      const stackVal = this.stack.pop()!;
+      if (!this.applyStep(table.getEpsilonNext(stackVal))) {
+        this.stack.push(stackVal);
+        return;
+      }
+      this.appendState(remaining, "ε");
+    }
+  }
+
+  accepts(input: string): boolean {
+    for (const char of input) {
+      if (!this.alphabet.has(char)) {
+        throw new Error(`Unexpected letter ${char}`);
       }
     }
 
-    return Array.from(alphabet);
+    for (const char of input) {
+      this.doEpsilonTransitions();
+      if (this.stack.length === 0) { return false; }
+
+      const table = this.transitions.get(this.state)!;
+      const stackVal = this.stack.pop()!;
+      if (!this.applyStep(table.getInputNext(char, stackVal))) {
+        return false;
+      }
+    }
+
+    this.doEpsilonTransitions();
+    return this.isInFinalState();
+  }
+
+  stepThrough(input: string) {
+    for (const char of input) {
+      if (!this.alphabet.has(char)) {
+        throw new Error(`Unexpected letter ${char}`);
+      }
+    }
+
+    this.appendState(input, "initial");
+
+    for (let i = 0; i < input.length; i++) {
+      const char = input[i];
+      const remaining = input.slice(i);
+      this.doStepEpsilonTransitions(remaining);
+      if (this.stack.length === 0) { return false; }
+
+      const table = this.transitions.get(this.state)!;
+      const stackVal = this.stack.pop()!;
+      if (!this.applyStep(table.getInputNext(char, stackVal))) {
+        return false;
+      }
+      this.appendState(remaining.slice(1), `->${char}`);
+    }
+
+    this.doStepEpsilonTransitions("");
+    return this.isInFinalState();
+  }
+
+  appendState(remainingInput: string, kind: string) {
+    const value = `${this.state}, [${remainingInput.split("")}], [${[...this.stack].reverse()}] (${kind})`;
+    const node = document.createElement("li");
+    node.appendChild(document.createTextNode(value));
+    document.getElementById("accepted_output")!.appendChild(node);
+  }
+
+  isInFinalState() {
+    return this.finalStates.has(this.state);
+  }
+
+  reset() {
+    this.state = this.initialState;
+    this.stack = [...this.initialStack];
+  }
+
+  getAlphabet(): string[] {
+    return Array.from(this.alphabet);
   }
 }
 
-function getNext(input: string, defaultState: number): {state: number, stack: string[]} | undefined {
-  if (!input) {
-    return undefined;
+function getNext(input: string, defaultState: string): {state: string, stack: string[]} {
+  if (!/\w*\/\w*/.test(input)) {
+    throw new Error(`Unexpected cell value ${input}`);
   }
+
   const val = input.split("/");
   return {
-    state: parseInt(val[0]) || defaultState,
+    state: val[0] || defaultState,
     stack: val[1].split("").reverse(),
   }
 }
 
-function makeTransitions(table: any[][]): Set<Transition<number, string, string>> {
-  for (const row of table) {
-    if (row.length !== table[0].length) {
-      throw new Error("Dimension error");
-    }
+function getState(input: string): {state: string, final: boolean} | undefined {
+  const match = /^(\*)?(\w+)$/.exec(input);
+  if (match === null) {
+    return undefined;
   }
+  return {state: match[2], final: !!match[1]};
+}
 
-  const transitions = new Set<Transition<number, string, string>>();
-  const state: number = table[0][0];
-  const stackVals = table[0];
+function processHtmlTable(table: HTMLTableElement): TTableProto {
+  const {state, final} = getState(table.rows[0].cells[0].textContent!)!;
+  const contents: string[][] = [];
+  for (const htmlRow of table.rows) {
+    const row: string[] = [];
+    for (const cell of htmlRow.cells) {
+      row.push(cell.textContent || "");
+    }
+    contents.push(row);
+  }
+  return {state, final, contents};
+}
 
-  for (let i = 1; i < table.length; i++) {
-    const row = table[i];
-    const character = row[0] || undefined;
+function getTransitions(def: TTableProto, states: Set<string>, stackSyms: Set<string>): Transition[] {
+  const state = def.state;
+  const stackHeader = def.contents[0];
+  const transitions: Transition[] = [];
+  for (let i = 1; i < def.contents.length; i++) {
+    const row = def.contents[i];
+    const letter = row[0];
     for (let j = 1; j < row.length; j++) {
-      const entry = row[j];
-      const stack = stackVals[j];
-
-      const next = getNext(entry, state);
-      if (next === undefined) {
-        continue;
-      };
-
-      transitions.add({state, input: character, stack, next});
+      const cell = row[j];
+      if (!cell) { continue; }
+      const {state: nState, stack: nStack} = getNext(cell, state);
+      if (!states.has(state)) {
+        throw new Error(`Undefined state ${nState}`);
+      }
+      if (nStack.some(s => !stackSyms.has(s))) {
+        throw new Error(`Undefined stack symbol in ${nStack}`);
+      }
+      transitions.push({state, input: letter, stack: stackHeader[j], next: {state: nState, stack: nStack}});
     }
   }
-
   return transitions;
 }
 
-function constructPDA(input: string): PDA<number, string, string> {
-  const transitions = new Set<Transition<number, string, string>>();
-  const finalStates = new Set<number>();
-  const initialStack = "Z";
-
-  const tables: any[][][] = input.split(/\s*\n{2,}\s*/)
-    .map(c => c.trim().split(/\s*\n\s*/)
-      .map(l => l.split(/\s*,\s*/)
-        .map(e => e || undefined)));
-
-  for (const table of tables) {
-    let state: string = table[0][0];
-    let final = false;
-    if (state[0] === "*") {
-      final = true;
-      state = state.slice(1);
-    }
-
-    table[0][0] = parseInt(state);
-    if (final) {
-      finalStates.add(table[0][0]);
-    }
-    makeTransitions(table).forEach(t => transitions.add(t));
+function buildPda(): Pda | undefined {
+  const tables = document.getElementById("transition_tables")!.firstChild;
+  if (!tables || !tables.hasChildNodes) {
+    return;
   }
 
-  const initialState = tables[0][0][0];
+  const protoTables: TTableProto[] = [];
+  tables.childNodes.forEach(child => {
+    const table = child as HTMLTableElement;
+    protoTables.push(processHtmlTable(table));
+  });
 
-  console.log(tables);
+  const alphabet = new Set(protoTables[0].contents.slice(1, -1).map(r => r[0]));
+  const states = new Set(protoTables.map(t => t.state));
+  const finalStates = new Set(protoTables.filter(t => t.final).map(t => t.state));
+  const initialState = protoTables[0].state;
+  const stackSymbols = new Set(protoTables[0].contents[0].slice(1));
+  const initialStack = ["Z"];
+  const transitions = new Map<string, TransitionTable>(protoTables.map(t => [t.state, new TransitionTable(getTransitions(t, states, stackSymbols))] as any));
 
-  return new PDA<number, string, string>(initialState, finalStates, transitions, initialStack);
+  const pda = new Pda(alphabet, states, initialState, finalStates, transitions, initialStack);
+
+  return pda;
+}
+
+function processInput() {
+  document.getElementById("accepted_output")!.innerHTML = "";
+  const pda = buildPda();
+  if (!pda) { return; }
+  fuzzTest(pda, 100);
+}
+
+function getInput(name: string): HTMLInputElement {
+  return document.getElementById(name)! as HTMLInputElement;
+}
+
+function populatePdaAttributes(states: string, alphabet: string, stackSymbols: string) {
+  getInput("pda_states").value = states;
+  getInput("pda_alphabet").value = alphabet;
+  getInput("pda_stack_symbols").value = stackSymbols;
+  generateTransitionTables();
+}
+
+function populateBinaryPda() {
+  populatePdaAttributes("S0, *S1", "0, 1", "0, 1");
+}
+
+function populateAbcPda() {
+  populatePdaAttributes("S0, S1, *S2", "a, b, c", "a, b, c");
+}
+
+function setCell(state: string, row: number, column: number, value: string) {
+  const table = document.getElementById(`transition_table_${state}`)! as HTMLTableElement;
+  table.rows[row].cells[column].textContent = value;
+}
+
+function populateTest() {
+  populateAbcPda();
+  setCell("S0", 1, 1, "/aZ");
+  setCell("S0", 1, 2, "/aa");
+  setCell("S0", 2, 2, "S1/");
+  setCell("S1", 2, 2, "/");
+  setCell("S1", 4, 1, "S2/");
+}
+
+function getStates(): {states: string[], finalStates: Set<string>} {
+  const entries = getInput("pda_states").value.split(/\s*,\s*|\s+/);
+
+  const states: string[] = [];
+  const finalStates = new Set<string>();
+
+  for (let entry of entries) {
+    if (entry.startsWith("*")) {
+      entry = entry.slice(1);
+      finalStates.add(entry);
+    }
+
+    if (!/^\w+/.test(entry)) {
+      throw new Error(`Invalid state name ${entry}`);
+    }
+    states.push(entry);
+  }
+
+  return {states, finalStates};
+}
+
+function getStackSymbols(): string[] {
+  const syms = getInput("pda_stack_symbols").value.split(/\s*,\s*|\s+/);
+
+  for (const s of syms) {
+    if (s === "Z") {
+      throw new Error("Initial stack symbol not allowed");
+    }
+
+    if (!/^\w$/.test(s)) {
+      throw new Error(`Invalid symbol name ${s}`);
+    }
+  }
+
+  return ["Z", ...syms];
+}
+
+function getAlphabet(): string[] {
+  const alphabet = getInput("pda_alphabet").value.split(/\s*,\s*|\s+/);
+  for (const a of alphabet) {
+    if (!/^\w$/.test(a)) {
+      throw new Error(`Invalid letter ${a}`);
+    }
+  }
+  return [...alphabet, EPSILON];
+}
+
+function generateTransitionTables() {
+  const location = document.getElementById("transition_tables")!;
+  const tables = document.createElement("div");
+
+  const {states, finalStates} = getStates();
+  const stackSyms = getStackSymbols();
+  const alphabet = getAlphabet();
+
+  for (const state of states) {
+    const table = document.createElement("table");
+    table.setAttribute("id", `transition_table_${state}`);
+    table.setAttribute("class", "transition_table");
+
+    const stackRow = document.createElement("tr");
+    const stateEntry = document.createElement("td");
+    stateEntry.innerText = `${finalStates.has(state) ? "*" : ""}${state}`;
+    stackRow.appendChild(stateEntry);
+    for (const sym of stackSyms) {
+      const symCell = document.createElement("td");
+      symCell.innerText = sym;
+      stackRow.appendChild(symCell);
+    }
+    table.appendChild(stackRow);
+
+    for (const letter of alphabet) {
+      const row = document.createElement("tr");
+      const letterNode = document.createElement("td");
+      letterNode.innerHTML = letter;
+      row.appendChild(letterNode)
+      for (let i = 0; i < stackSyms.length; i++) {
+        const cell = document.createElement("td");
+        cell.setAttribute("contentEditable", "true");
+        cell.setAttribute("spellcheck", "false");
+        row.appendChild(cell);
+      }
+      table.appendChild(row);
+    }
+    tables.appendChild(table);
+  }
+
+  location.innerHTML = "";
+  location.appendChild(tables);
 }
 
 function* permutations(alphabet: string[], length: number): IterableIterator<string[]> {
@@ -242,46 +427,36 @@ function* permutations(alphabet: string[], length: number): IterableIterator<str
   }
 }
 
-async function fuzzTest(pda: PDA<number, string, string>, wordLength: number) {
+async function fuzzTest(pda: Pda, wordLength: number) {
   let start = Date.now();
   const alphabet = pda.getAlphabet();
-  console.log(alphabet);
 
   const perms = permutations(alphabet, wordLength);
-
-  while (Date.now() - start < 2000) {
+  const output = document.getElementById("accepted_output")!;
+  while (Date.now() - start < 5000) {
     const input = perms.next();
     if (input.done) {
       return;
     }
-    const value = input.value;
+    const value = input.value.join("");
 
-    pda.reset(0, ["Z"]);
+    pda.reset();
     if (pda.accepts(value)) {
       const node = document.createElement("li");
-      const word = document.createTextNode(value.join(""));
+      const word = document.createTextNode(value);
       node.appendChild(word);
-      document.getElementById("accepted_output")!.appendChild(node);
+      output.appendChild(node);
     }
   }
 
   console.log("timeout");
 }
 
-console.log("Hmmm")
 
-
-
-
-function processInput() {
-  console.log("Doing...");
+function testInput() {
   document.getElementById("accepted_output")!.innerHTML = "";
-
-  const input = (document.getElementById("pda_tables")! as HTMLTextAreaElement).value;
-  try {
-    const pda = constructPDA(input);
-    fuzzTest(pda, 10);
-  } catch (e) {
-    console.error(e);
-  }
+  const pda = buildPda();
+  if (!pda) { return; }
+  const input = (document.getElementById("pda_input")! as HTMLInputElement).value;
+  pda.stepThrough(input);
 }
